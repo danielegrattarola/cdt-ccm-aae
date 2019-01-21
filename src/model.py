@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import numpy as np
 from keras import backend as K
 from keras.layers import Input, Dense, BatchNormalization, Activation, Reshape, \
@@ -7,7 +5,6 @@ from keras.layers import Input, Dense, BatchNormalization, Activation, Reshape, 
 from keras.models import Model
 from keras.regularizers import l2
 from keras.utils import multi_gpu_model
-
 from spektral.layers import GraphConv, EdgeConditionedConv, GlobalAttentionPool, CCMProjection
 
 
@@ -16,7 +13,7 @@ class GAE_CCM(object):
     A graph autoencoder with support for combined CCMs.
     """
     def __init__(self, N, F, E=None, latent_space=128, radius=(-1., 0., 1.),
-                 dropout_rate=0.0, l2_reg=5e-4, multi_gpu=True):
+                 dropout_rate=0.0, l2_reg=5e-4, multi_gpu=False):
         self.N = N                        # Number of nodes in a graph
         self.F = F                        # Number of node features
         self.E = E                        # Number of edge features
@@ -29,8 +26,8 @@ class GAE_CCM(object):
         elif isinstance(radius, list) or isinstance(radius, tuple):
             self._radius = radius
         else:
-            raise TypeError('Radius must be either a single value, a list'
-                            'of values (or a tuple).')
+            raise TypeError('Radius must be either a single value or a list'
+                            'of values.')
 
         # Model definition
         if self.E is not None:

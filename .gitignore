@@ -1,6 +1,10 @@
-logs/
-*.sh~
-__pycache__/
-*.pyc
+# Dev related
 .idea/
-*.egg-info
+.pytest_caches/
+
+# Logs
+logs/
+
+# Executables
+*.sh~
+*.pyc

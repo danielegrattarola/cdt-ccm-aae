@@ -14,22 +14,19 @@ from utils import detection_score, dataset_bootstrap
 
 parser = argparse.ArgumentParser()
 parser.add_argument('path', type=str, default=None, help='Path to dataset .pkl or log folder with datasets')
-parser.add_argument('--output', type=str, default=None, help='Path to create output folder')
-parser.add_argument('--baseline', action='store_true', help='Use dataset_baseline instead of dataset_geom')
-parser.add_argument('-r', nargs='*', type=float, default=None, help='Radius, or list of radii')
-
 parser.add_argument('--dcdt', action='store_true', help='Run distance-based CDT')
 parser.add_argument('--rcdt', action='store_true', help='Run Riemannian CDT')
 args = parser.parse_args()
 
-CUSUM_WINDOW_SIZE = 20
-CUSUM_ARL = 10000
-CUSUM_SIM_LEN = int(1e3)
-n_train_samples = 5000
-n_test_samples = 10000
-latent_space = 3
-radius = args.r
-N_RUNS = 20
+CUSUM_WINDOW_SIZE = 20  # Number of graphs in a window for the CDT
+CUSUM_ARL = 10000       # Expected average run lenght
+CUSUM_SIM_LEN = 1000    # Length of the simulations run by CUSUM to estimate the threshold
+n_train_samples = 5000  # Number of nominal samples used to configure CUSUM
+n_test_samples = 10000  # Number of test samples **per class**
+latent_space = 3        # Dimension of each manifold
+radius = [-1., 0., 1.]  # List of radii (one for eacch manifold)
+N_RUNS = 20             # Number of repeated runs for each CUSUM
+n_jobs = 1              # Number of threads to use (-1 for all available)
 classes = list(range(1, 21))
 
 paths = []
@@ -38,10 +35,7 @@ if args.path.endswith('.pkl'):
     paths.append(args.path)
 else:
     # Dataset from normal training
-    if args.baseline:
-        paths.append(args.path + 'dataset_baseline/dataset.pkl')
-    else:
-        paths.append(args.path + 'dataset_geom/dataset.pkl')
+    paths.append(args.path + 'dataset_geom/dataset.pkl')
     paths.append(args.path + 'dataset_prior/dataset.pkl')
 
 
@@ -235,28 +229,17 @@ if args.rcdt:
     suffix = 'R-CDT'
     log_dir_name += '_' + suffix
     suffixes.append(suffix)
-
-if args.output is not None:
-    log_dir_name = args.output + log_dir_name
 log_dir = init_logging(log_dir_name)
 
 df_columns = ['id', 'c', '1_TPR', '2_TPR_std', '3_FPR', '4_FPR_std', '5_AUC', '6_AUC_std']
 for sfx_, cdt_ in zip(suffixes, cdts_to_run):
     print('{}'.format(sfx_))
-    output = Parallel(1)(delayed(cdt_)(path_, c_) for path_, c_ in
-                          product(paths, classes))
+    output = Parallel(n_jobs=n_jobs)(delayed(cdt_)(path_, c_) for path_, c_ in
+                                     product(paths, classes))
     df = pd.DataFrame(output)
     df.columns = df_columns
     val = ['1_TPR', '2_TPR_std', '3_FPR', '4_FPR_std', '5_AUC', '6_AUC_std']
     out = df.pivot_table(values=val, index=['id'], columns='c')
     out = out.stack(level=0)
     out.to_csv(log_dir + '{}_results.csv'.format(sfx_))
-
-    # Exec summary
-    filtered_cols = ['id', 'c', '1_TPR', '5_AUC']
-    val = ['1_TPR', '5_AUC']
-    exec_summary = df[filtered_cols].pivot_table(values=val, index=['id'],
-                                                 columns='c')
-    exec_summary = exec_summary.stack(level=0)
-    exec_summary.to_csv(log_dir + '{}_exec_summary.csv'.format(sfx_))
 

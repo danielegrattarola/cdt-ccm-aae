@@ -1,4 +1,3 @@
-import argparse
 import sys
 import time
 import warnings
@@ -25,16 +24,11 @@ def mean_pred(y_true, y_pred):
     return K.mean(y_pred)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-r', nargs='+', type=float, default=[-1., 0., 1.], help='Radius, or list of radii')
-args = parser.parse_args()
-
 SEED = np.random.randint(1000000)
 N_SAMPLES_IN_BASE = 10000
 N_SAMPLES_IN_CLASS = 1000
-SAVE_DATASET = True
 latent_space = 3
-radius = args.r
+radius = [-1., 0., 1.]
 sigma = 5
 full_latent_space = latent_space * len(radius)
 learning_rate = 1e-3
@@ -114,8 +108,8 @@ log(model_to_str(discriminator), print_string=False)
 tic('Fitting AAE')
 t = time.time()
 current_batch = 0
-model_loss = 0
-adv_fool = 0
+model_loss = 0  # Loss of the autoencoder
+adv_fool = 0    # Mean prediction of the discriminator on positive samples
 best_val_loss = np.inf
 patience = es_patience
 batches_in_epoch = 1 + adj_train.shape[0] // batch_size

@@ -32,10 +32,9 @@ The `src` folder includes several scripts to run the different versions of the a
 
 - `main_prior.py`, trains the AAE using the non-Euclidean prior;
 - `main_geom.py`, trains the AAE using the geometric discriminator;
-- `main_baseline.py`, is a simplified version of `main_prior.py` for the Euclidean case;
 - `main_cdt.py`, runs the change detection tests on the data saved by the previous scripts;
 
-To simplify the workflow, the `src` folder includes two `.sh` scripts to run a full experiment on Delaunay triangulations (`run_baseline.sh` is a dedicated script for running only the simplified baseline).
+To simplify the workflow, the repository includes a `main.sh` script to run a full experiment on Delaunay triangulations.
 
 ## About
 

@@ -1,4 +1,3 @@
-import argparse
 import sys
 import time
 import warnings
@@ -26,16 +25,11 @@ def mean_pred(y_true, y_pred):
     return K.mean(y_pred)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-r', nargs='+', type=float, default=[-1., 0., 1.], help='Radius, or list of radii')
-args = parser.parse_args()
-
 SEED = np.random.randint(1000000)
 N_SAMPLES_IN_BASE = 10000
 N_SAMPLES_IN_CLASS = 1000
-SAVE_DATASET = True
 latent_space = 3
-radius = args.r
+radius = [-1., 0., 1.]
 full_latent_space = latent_space * len(radius)
 learning_rate = 1e-3
 l2_reg = 5e-4
@@ -118,12 +112,12 @@ log(model_to_str(discriminator), print_string=False)
 tic('Fitting AAE')
 t = time.time()
 current_batch = 0
-model_loss = 0
-adv_loss_neg = 0
-adv_loss_pos = 0
-adv_acc_neg = 0
-adv_acc_pos = 0
-adv_fool = 0
+model_loss = 0    # Loss of the autoencoder
+adv_loss_neg = 0  # Loss of the discriminator on negative samples (encoder)
+adv_loss_pos = 0  # Loss of the discriminator on positive samples (prior)
+adv_acc_neg = 0   # Accuracy of the discriminator on negative samples (encoder)
+adv_acc_pos = 0   # Accuracy of the discriminator on positive samples (prior)
+adv_fool = 0      # Mean prediction of the discriminator on positive samples
 best_val_loss = np.inf
 patience = es_patience
 batches_in_epoch = 1 + adj_train.shape[0] // batch_size
@@ -162,8 +156,8 @@ for batch in batch_iterator([adj_train, fltr_train, nf_train], batch_size=batch_
                                         batch_size=batch_size, verbose=0)[0]
         log('Epoch {:3d} ({:2.2f}s) - '
             'loss {:.2f} - val_loss {:.2f} - '
-            'adv_loss {:.2f} & {:.2f} - '
-            'adv_acc {:.2f} ({:.2f} & {:.2f}) - '
+            'adv_loss neg: {:.2f} & pos {:.2f} - '
+            'adv_acc {:.2f} (neg {:.2f} & pos {:.2f}) - '
             'adv_fool (should be 0.5): {:.2f}'
             ''.format(current_batch // batches_in_epoch, time.time() - t,
                       model_loss, model_val_loss,
@@ -194,7 +188,9 @@ for batch in batch_iterator([adj_train, fltr_train, nf_train], batch_size=batch_
 toc()
 log('Loading best weights')
 model.load_weights(log_dir + 'model_best_val_weights.h5')
-test_loss = model.evaluate([adj_test, fltr_test, nf_test], [adj_test, nf_test], batch_size=batch_size, verbose=0)[0]
+test_loss = model.evaluate([adj_test, fltr_test, nf_test],
+                           [adj_test, nf_test],
+                           batch_size=batch_size, verbose=0)[0]
 log('Test loss: {:.2f}'.format(test_loss))
 
 # Embeddings
