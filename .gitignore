@@ -1,0 +1,6 @@
+logs/
+*.sh~
+__pycache__/
+*.pyc
+.idea/
+*.egg-info
