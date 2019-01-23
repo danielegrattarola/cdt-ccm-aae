@@ -13,8 +13,8 @@ from spektral.layers import CCMMembership
 from spektral.utils import localpooling_filter, batch_iterator
 from spektral.utils.logging import log, model_to_str, init_logging, tic, toc
 
-from . import delaunay
-from .model import GAE_CCM
+from src import delaunay
+from src.model import GAE_CCM
 
 # Keras 2.2.2 throws UserWarnings all over the place during training
 if not sys.warnoptions:
