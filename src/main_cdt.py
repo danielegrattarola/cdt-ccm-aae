@@ -10,7 +10,8 @@ from cdg.embedding.manifold import SphericalManifold, HyperbolicManifold, \
 from joblib import Parallel, delayed
 from spektral.geometric import hyperbolic_clip
 from spektral.utils import init_logging, log
-from utils import detection_score, dataset_bootstrap
+
+from .utils import detection_score, dataset_bootstrap
 
 parser = argparse.ArgumentParser()
 parser.add_argument('path', type=str, default=None, help='Path to dataset .pkl or log folder with datasets')

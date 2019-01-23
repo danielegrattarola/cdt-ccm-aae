@@ -7,13 +7,14 @@ import keras.backend as K
 import numpy as np
 from keras.models import Sequential, Model
 from keras.optimizers import Adam
-from model import GAE_CCM
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from spektral.datasets import delaunay
 from spektral.layers import CCMMembership
 from spektral.utils import localpooling_filter, batch_iterator
 from spektral.utils.logging import log, model_to_str, init_logging, tic, toc
+
+from . import delaunay
+from .model import GAE_CCM
 
 # Keras 2.2.2 throws UserWarnings all over the place during training
 if not sys.warnoptions:
