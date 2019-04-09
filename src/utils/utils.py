@@ -82,39 +82,7 @@ def detection_score(y_pred, y_true, alternative='greater'):
         return mwu_stat / (rl_0.shape[0] * rl_1.shape[0]), mwu_pval
 
 
-def dataset_bootstrap(data, classes=None, n_train_samples=1000,
-                      n_test_samples=1000):
-    """
-    Randomly bootstraps a dataset of embeddings into a train and a test set.
-    Integer class labels must be provided as part of the data. The method
-    expects to find at least 1 embedding of class 0, and at least 1 embedding
-    for any other class in `classes` for test data.
-    :param data: data from which to sample the training and test sets.
-        Can be:
-        - list of np.ndarrays [embeddings, labels], where embeddings.shape ==
-        (n_samples, latent_space) and labels.shape == (n_samples, 1) or
-        (n_samples, );
-        - np.ndarray of shape (n_samples, latent_space + 1) in which the last
-          column represents the labels;
-        - path to numpy serialized file (e.g. .npy, .npz, or .txt files) storing
-          data in the np.ndarray format described above;
-        - path to pickled file storing data in any of the first two formats
-          described above.
-    :param classes: classes to use for testing. The values must match the labels
-        column of `data`.
-        Possible values:
-        - list of class indices (e.g. [0, 1, 2, 3]);
-        - int, converted to range(classes);
-        - None, use all labels in the dataset.
-    :param n_train_samples: number of embeddings of class 0 to samples as train
-        data.
-    :param n_test_samples: number of embeddings per class in `classes` to sample
-        as test data.
-    :return: a tuple containing:
-        - train data, np.ndarray of shape (n_train_samples, latent space);
-        - test data, np.ndarray of shape (n_test_samples * n_classes,
-          latent_space);
-    """
+def dataset_load(data):
     # Load data from file
     if isinstance(data, str):
         if data.endswith('.npy') or data.endswith('.npz'):
@@ -128,51 +96,14 @@ def dataset_bootstrap(data, classes=None, n_train_samples=1000,
             data = joblib.load(data)
 
     # Split data into embeddings and labels
-    if isinstance(data, np.ndarray):
-        if data.ndim != 2:
-            raise ValueError('data: too many dimensions (expected ndim == 2).')
-        embeddings, labels = data[..., :-1], data[..., -1:]
-    elif isinstance(data, list):
-        if len(data) != 2:
-            raise ValueError('Expected a list [embeddings, labels], but got '
-                             'a list of length {}.'.format(len(data)))
-        for i in range(len(data)):
-            if not isinstance(data[i], np.ndarray):
-                raise TypeError('data[{}]: expected a numpy array.'.format(i))
-
-        embeddings, labels = data[0], data[1]
+    if isinstance(data, list):
+        if len(data) == 3:
+            nominal, live, labels = data[0], data[1], data[2]
+            labels = labels.reshape(-1)
+            return nominal, live, labels
+        else:
+            live, labels = data[0], data[1]
+            labels = labels.reshape(-1)
+            return live, labels
     else:
         raise TypeError('Unsupported data format: {}.'.format(type(data)))
-    labels = labels.reshape(-1)
-
-    if classes is None:
-        classes = list(set(labels))
-    elif isinstance(classes, int):
-        classes = range(classes)
-    else:
-        if not isinstance(classes, list):
-            raise TypeError('classes must be list, int, or None.')
-
-    # Keep only requested data
-    mask = np.isin(labels, [0] + classes)
-    embeddings = embeddings[mask]
-    labels = labels[mask]
-
-    # Collect test indices
-    test_idx = np.array([])
-    for c in classes:
-        c_range = np.argwhere(labels == c)
-        if c_range.shape[0] < 1:
-            raise ValueError('Not enough samples for class {}.'.format(c))
-        t_idx = np.random.choice(c_range.reshape(-1), n_test_samples)
-        test_idx = np.concatenate((test_idx, t_idx))
-    test_idx = test_idx.astype(int)
-
-    # Collect train indices
-    c_range = np.argwhere(labels == 0)
-    if c_range.shape[0] < 1:
-        raise ValueError('Not enough samples for class 0.')
-    train_idx = np.random.choice(c_range.reshape(-1), n_train_samples)
-    train_idx = train_idx.astype(int)
-
-    return embeddings[train_idx], embeddings[test_idx]

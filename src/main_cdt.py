@@ -1,17 +1,16 @@
 import argparse
+from collections import OrderedDict
 from itertools import product
 
 import numpy as np
 import pandas as pd
-from cdg.changedetection.cusum import GaussianCusum, ManifoldCLTCusum, \
-    BonferroniCusum
-from cdg.embedding.manifold import SphericalManifold, HyperbolicManifold, \
-    EuclideanManifold
+from cdg.changedetection import GaussianCusum, ManifoldCLTCusum, BonferroniCusum
+from cdg.geometry import SphericalManifold, HyperbolicManifold
 from joblib import Parallel, delayed
-from spektral.geometric import hyperbolic_clip
-from spektral.utils import init_logging, log
+from sklearn.metrics import confusion_matrix
 
-from src.utils import detection_score, dataset_bootstrap
+from src.utils.utils import detection_score, dataset_load
+from src.utils.logging import init_logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument('path', type=str, default=None, help='Path to dataset .pkl or log folder with datasets')
@@ -19,16 +18,16 @@ parser.add_argument('--dcdt', action='store_true', help='Run distance-based CDT'
 parser.add_argument('--rcdt', action='store_true', help='Run Riemannian CDT')
 args = parser.parse_args()
 
-CUSUM_WINDOW_SIZE = 20  # Number of graphs in a window for the CDT
-CUSUM_ARL = 10000       # Expected average run lenght
-CUSUM_SIM_LEN = 1000    # Length of the simulations run by CUSUM to estimate the threshold
-n_train_samples = 5000  # Number of nominal samples used to configure CUSUM
-n_test_samples = 10000  # Number of test samples **per class**
-latent_space = 3        # Dimension of each manifold
-radius = [-1., 0., 1.]  # List of radii (one for eacch manifold)
-N_RUNS = 20             # Number of repeated runs for each CUSUM
-n_jobs = 1              # Number of threads to use (-1 for all available)
-classes = list(range(1, 21))
+P = OrderedDict(
+    CUSUM_WINDOW_RATIO=0.001,
+    CUSUM_ARL=100,              # Expected average run lenght
+    CUSUM_SIM_LEN=int(1e5),     # Length of the simulations run by CUSUM to estimate the threshold
+    latent_space=3,             # Dimension of each manifold
+    radius=[-1., 0., 1.],       # List of radii (one for eacch manifold)
+    N_RUNS=1,                   # Number of repeated runs for each CUSUM
+    classes=list(range(1, 21))  # Classes to test for
+)
+print(P)
 
 paths = []
 if args.path.endswith('.pkl'):
@@ -48,42 +47,53 @@ def _d_cdt(_path, _c):
     run = 0
     skipped = 0
     crashed = False
-    while run <= N_RUNS and (skipped < 100 or skipped / (run + skipped) < 0.9):
+    while run < P['N_RUNS'] and (skipped < 100 or skipped / (run + skipped) < 0.9):
+        # Read data
+        data = dataset_load(_path)
         try:
-            nominal, test = dataset_bootstrap(_path,
-                                              classes=[0, _c],
-                                              n_train_samples=n_train_samples,
-                                              n_test_samples=n_test_samples)
-        except FileNotFoundError:
-            crashed = True
-            break
+            nominal, live, labels = data
+        except:
+            live, labels = data
+            nominal = live[labels == 0].copy()
+        live = live[(labels == 0) | (labels == _c)]
+        labels = labels[(labels == 0) | (labels == _c)]
+        labels[labels != 0] = 1
+        CUSUM_WINDOW_SIZE = int(nominal.shape[0] * P['CUSUM_WINDOW_RATIO'])
+        cut = CUSUM_WINDOW_SIZE * (nominal.shape[0] // CUSUM_WINDOW_SIZE)
+        nominal = nominal[:cut]
+        cut = CUSUM_WINDOW_SIZE * (labels.shape[0] // CUSUM_WINDOW_SIZE)
+        live = live[:cut]
+        labels = labels[:cut]
+        live_n = live[labels == 0].copy()
+        live_nn = live[labels == 1].copy()
+        live = np.vstack((live_n, live_nn))
 
+        # Compute distances
         distances_nom = []
         distances_test = []
         try:
-            for i_, r_ in enumerate(radius):
-                start = i_ * latent_space
-                stop = start + latent_space
+            for i_, r_ in enumerate(P['radius']):
+                start = i_ * P['latent_space']
+                stop = start + P['latent_space']
                 if r_ > 0.:
                     # Spherical
                     s_mean = SphericalManifold.sample_mean(nominal[:, start:stop], radius=r_)
                     d_nom = SphericalManifold.distance(nominal[:, start:stop], s_mean, radius=r_)
-                    d_test = SphericalManifold.distance(test[:, start:stop], s_mean, radius=r_)
+                    d_test = SphericalManifold.distance(live[:, start:stop], s_mean, radius=r_)
                 elif r_ < 0.:
                     # Hyperbolic
-                    nominal[:, start:stop] = hyperbolic_clip(nominal[:, start:stop], r=-r_)
                     s_mean = HyperbolicManifold.sample_mean(nominal[:, start:stop], radius=-r_)
                     d_nom = HyperbolicManifold.distance(nominal[:, start:stop], s_mean, radius=-r_)
-                    d_test = HyperbolicManifold.distance(test[:, start:stop], s_mean, radius=-r_)
+                    d_test = HyperbolicManifold.distance(live[:, start:stop], s_mean, radius=-r_)
                 else:
                     # Euclidean
                     s_mean = np.mean(nominal[:, start:stop], 0)
                     d_nom = np.linalg.norm(nominal[:, start:stop] - s_mean, axis=-1)[..., None]
-                    d_test = np.linalg.norm(test[:, start:stop] - s_mean, axis=-1)[..., None]
+                    d_test = np.linalg.norm(live[:, start:stop] - s_mean, axis=-1)[..., None]
                 distances_nom.append(d_nom)
                 distances_test.append(d_test)
         except FloatingPointError:
-            # Hyperbolic mean crashed
+            print('D-CDT: FloatingPointError')
             skipped += 1
             continue
 
@@ -92,32 +102,34 @@ def _d_cdt(_path, _c):
         distances_test = np.concatenate(distances_test, -1)
 
         # Change detection
-        cdt = GaussianCusum(arl=CUSUM_ARL, window_size=CUSUM_WINDOW_SIZE)
-        cdt.fit(distances_nom, estimate_threshold=True, len_simulation=CUSUM_SIM_LEN)
+        cdt = GaussianCusum(arl=P['CUSUM_ARL'], window_size=CUSUM_WINDOW_SIZE)
+        cdt.fit(distances_nom, estimate_threshold=True, len_simulation=P['CUSUM_SIM_LEN'])
 
         pred, cum_sum = cdt.predict(distances_test, reset=True)
         pred = np.array(pred).astype(int)
 
-        true_positives = pred[n_test_samples:].mean()
-        false_positives = pred[:n_test_samples].mean()
-        y_pred = pred.reshape(-1, CUSUM_WINDOW_SIZE)[:, 0].reshape(-1)
-        y_true = np.array([0.] * n_test_samples + [1.] * n_test_samples).reshape(-1, CUSUM_WINDOW_SIZE)[:, 0].reshape(-1)
+        y_true = labels.reshape(-1, CUSUM_WINDOW_SIZE).mean(-1).round().reshape(-1)
+        y_pred = pred.reshape(-1, CUSUM_WINDOW_SIZE).mean(-1).round().reshape(-1)
+
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+        tpr = tp / (tp + fn)
+        fpr = fp / (fp + tn)
         auc, _ = detection_score(y_pred, y_true)
 
         if auc > 0.:
-            tpr_avg.append(true_positives)
-            fpr_avg.append(false_positives)
+            tpr_avg.append(tpr)
+            fpr_avg.append(fpr)
             auc_avg.append(auc)
             run += 1
         else:
-            # No true positive predictions
+            print('No true positive predictions')
             skipped += 1
 
     if len(auc_avg) == 0 or np.isnan(np.mean(auc_avg)):
         crashed = True
 
     result_str = 'crashed' if crashed else 'TPR: {:.5f} FPR: {:.5f} - AUC: {:.3f}'.format(np.mean(tpr_avg), np.mean(fpr_avg), np.mean(auc_avg))
-    log('Done: {} {} - {}'.format(_id, _c, result_str))
+    print('Done: {} {} - {}'.format(_id, _c, result_str))
 
     if not crashed:
         return (_id, _c,
@@ -136,77 +148,84 @@ def _r_cdt(_path, _c):
     run = 0
     skipped = 0
     crashed = False
-    while run <= N_RUNS and (skipped < 100 or skipped / (run + skipped) < 0.9):
+    while run < P['N_RUNS'] and (skipped < 100 or skipped / (run + skipped) < 0.9):
+        # Read data
+        data = dataset_load(_path)
         try:
-            nominal, test = dataset_bootstrap(_path,
-                                              classes=[0, _c],
-                                              n_train_samples=n_train_samples,
-                                              n_test_samples=n_test_samples)
-        except FileNotFoundError:
-            crashed = True
-            break
+            nominal, live, labels = data
+        except:
+            live, labels = data
+            nominal = live[labels == 0].copy()
+        live = live[(labels == 0) | (labels == _c)]
+        labels = labels[(labels == 0) | (labels == _c)]
+        labels[labels != 0] = 1
+        CUSUM_WINDOW_SIZE = int(nominal.shape[0] * P['CUSUM_WINDOW_RATIO'])
+        cut = CUSUM_WINDOW_SIZE * (nominal.shape[0] // CUSUM_WINDOW_SIZE)
+        nominal = nominal[:cut]
+        cut = CUSUM_WINDOW_SIZE * (labels.shape[0] // CUSUM_WINDOW_SIZE)
+        live = live[:cut]
+        labels = labels[:cut]
+        live_n = live[labels == 0].copy()
+        live_nn = live[labels == 1].copy()
+        live = np.vstack((live_n, live_nn))
 
         # Change detection
         cusum_list = []
         indices = []
-        for i_, r_ in enumerate(radius):
-            start = i_ * latent_space
-            stop = start + latent_space
+        for i_, r_ in enumerate(P['radius']):
+            start = i_ * P['latent_space']
+            stop = start + P['latent_space']
             indices.append((start, stop))
             if r_ < 0.:
                 # Hyperbolic
-                man_tmp = HyperbolicManifold()
-                man_tmp.set_radius(-r_)
-                cusum_list.append(ManifoldCLTCusum(arl=CUSUM_ARL, manifold=man_tmp,
+                man_tmp = HyperbolicManifold(radius=-r_)
+                cusum_list.append(ManifoldCLTCusum(arl=P['CUSUM_ARL'], manifold=man_tmp,
                                                    window_size=CUSUM_WINDOW_SIZE))
             elif r_ > 0.:
                 # Spherical
-                man_tmp = SphericalManifold()
-                man_tmp.set_radius(r_)
-                cusum_list.append(ManifoldCLTCusum(arl=CUSUM_ARL, manifold=man_tmp,
+                man_tmp = SphericalManifold(radius=r_)
+                cusum_list.append(ManifoldCLTCusum(arl=P['CUSUM_ARL'], manifold=man_tmp,
                                                    window_size=CUSUM_WINDOW_SIZE))
             else:
                 # Euclidean
-                man_tmp = EuclideanManifold()
-                cusum_list.append(ManifoldCLTCusum(arl=CUSUM_ARL, manifold=man_tmp,
-                                                   window_size=CUSUM_WINDOW_SIZE))
+                cusum_list.append(GaussianCusum(arl=P['CUSUM_ARL'], window_size=CUSUM_WINDOW_SIZE))
 
         # Bonferroni on different
-        cdt = BonferroniCusum(arl=CUSUM_ARL // len(radius),
-                              window_size=CUSUM_WINDOW_SIZE,
-                              cusum_list=cusum_list)
+        cdt = BonferroniCusum(cusum_list=cusum_list, arl=P['CUSUM_ARL'] // len(P['radius']))
         try:
             cdt.fit([nominal[..., start:stop] for start, stop in indices],
-                    estimate_threshold=True, len_simulation=CUSUM_SIM_LEN,
-                    radia=radius)
+                    estimate_threshold=True, len_simulation=P['CUSUM_SIM_LEN'],
+                    radia=P['radius'])
         except FloatingPointError:
+            print('R-CDT: FloatingPointError')
             skipped += 1
             continue
 
-        pred, _ = cdt.predict([test[..., start:stop] for start, stop in indices],
-                              reset=True)
+        pred, cum_sum = cdt.predict([live[..., start:stop] for start, stop in indices], reset=True)
         pred = np.array(pred).astype(int)
 
-        true_positives = pred[n_test_samples:].mean()
-        false_positives = pred[:n_test_samples].mean()
-        y_pred = pred.reshape(-1, CUSUM_WINDOW_SIZE)[:, 0].reshape(-1)
-        y_true = np.array([0.] * n_test_samples + [1.] * n_test_samples).reshape(-1, CUSUM_WINDOW_SIZE)[:, 0].reshape(-1)
+        y_true = labels.reshape(-1, CUSUM_WINDOW_SIZE).mean(-1).round().reshape(-1)
+        y_pred = pred.reshape(-1, CUSUM_WINDOW_SIZE).mean(-1).round().reshape(-1)
+
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+        tpr = tp / (tp + fn)
+        fpr = fp / (fp + tn)
         auc, _ = detection_score(y_pred, y_true)
 
         if auc > 0.:
-            tpr_avg.append(true_positives)
-            fpr_avg.append(false_positives)
+            tpr_avg.append(tpr)
+            fpr_avg.append(fpr)
             auc_avg.append(auc)
             run += 1
         else:
-            # No true positive predictions
+            print('No true positive predictions')
             skipped += 1
 
     if len(auc_avg) == 0 or np.isnan(np.mean(auc_avg)):
         crashed = True
 
     result_str = 'crashed' if crashed else 'TPR: {:.5f} FPR: {:.5f} - AUC: {:.3f}'.format(np.mean(tpr_avg), np.mean(fpr_avg), np.mean(auc_avg))
-    log('Done: {} {} - {}'.format(_id, _c, result_str))
+    print('Done: {} {} - {}'.format(_id, _c, result_str))
 
     if not crashed:
         return (_id, _c,
@@ -221,26 +240,21 @@ cdts_to_run = []
 suffixes = []
 log_dir_name = 'cdt'
 if args.dcdt:
-    suffix = 'D-CDT'
     cdts_to_run.append(_d_cdt)
-    log_dir_name += '_' + suffix
-    suffixes.append(suffix)
+    suffixes.append('D-CDT')
 if args.rcdt:
     cdts_to_run.append(_r_cdt)
-    suffix = 'R-CDT'
-    log_dir_name += '_' + suffix
-    suffixes.append(suffix)
-log_dir = init_logging(log_dir_name)
+    suffixes.append('R-CDT')
+log_dir = init_logging('cdt')
 
 df_columns = ['id', 'c', '1_TPR', '2_TPR_std', '3_FPR', '4_FPR_std', '5_AUC', '6_AUC_std']
 for sfx_, cdt_ in zip(suffixes, cdts_to_run):
     print('{}'.format(sfx_))
-    output = Parallel(n_jobs=n_jobs)(delayed(cdt_)(path_, c_) for path_, c_ in
-                                     product(paths, classes))
+    output = Parallel(-1)(delayed(cdt_)(path_, c_)
+                          for path_, c_ in product(paths, P['classes']))
     df = pd.DataFrame(output)
     df.columns = df_columns
     val = ['1_TPR', '2_TPR_std', '3_FPR', '4_FPR_std', '5_AUC', '6_AUC_std']
     out = df.pivot_table(values=val, index=['id'], columns='c')
     out = out.stack(level=0)
     out.to_csv(log_dir + '{}_results.csv'.format(sfx_))
-

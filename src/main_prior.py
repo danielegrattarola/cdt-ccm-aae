@@ -10,12 +10,12 @@ from keras.models import Sequential, Model
 from keras.optimizers import Adam
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from spektral.datasets import delaunay
-from spektral.geometric import ccm_normal
 from spektral.utils import localpooling_filter, batch_iterator
-from spektral.utils.logging import log, model_to_str, init_logging, tic, toc
 
-from src.model import GAE_CCM
+from src.utils import delaunay
+from src.utils.logging import log, model_to_str, init_logging, tic, toc
+from src.utils.model import GAE_CCM
+from src.utils.geometry import ccm_normal
 
 # Keras 2.2.2 throws UserWarnings all over the place during training
 if not sys.warnoptions:
@@ -28,15 +28,15 @@ def mean_pred(y_true, y_pred):
 
 SEED = np.random.randint(1000000)
 N_SAMPLES_IN_BASE = 10000
-N_SAMPLES_IN_CLASS = 1000
+N_SAMPLES_IN_CLASS = 10000
 latent_space = 3
 radius = [-1., 0., 1.]
 full_latent_space = latent_space * len(radius)
 learning_rate = 1e-3
 l2_reg = 5e-4
-epochs = 2000
-batch_size = 64
-es_patience = 20
+epochs = 20000
+batch_size = 128
+es_patience = 100
 optimizer = Adam(lr=learning_rate)
 losses = ['binary_crossentropy', 'mse']
 log_dir = init_logging('dataset_prior')
@@ -73,8 +73,8 @@ print('Preprocessing data.')
 ss = StandardScaler()
 nf = ss.fit_transform(nf.reshape(-1, F)).reshape(-1, N, F)
 nf_live = ss.transform(nf_live.reshape(-1, F)).reshape(-1, N, F)
-fltr = localpooling_filter(adj.copy())
-fltr_live = localpooling_filter(adj_live.copy())
+fltr = localpooling_filter(adj)
+fltr_live = localpooling_filter(adj_live)
 
 # Train/test split
 adj_train, adj_test, \
@@ -87,7 +87,7 @@ fltr_train, fltr_val, \
 nf_train, nf_val = train_test_split(adj_train, fltr_train, nf_train, test_size=0.1)
 
 # Autoencoder
-model = GAE_CCM(N, F, latent_space=latent_space, radius=radius, l2_reg=l2_reg)
+model = GAE_CCM(N, F, latent_space=latent_space, radius=radius, l2_reg=l2_reg, multi_gpu=False)
 model.compile(optimizer=optimizer, loss=losses)
 
 # Discriminator
@@ -191,13 +191,15 @@ log('Loading best weights')
 model.load_weights(log_dir + 'model_best_val_weights.h5')
 test_loss = model.evaluate([adj_test, fltr_test, nf_test],
                            [adj_test, nf_test],
-                           batch_size=batch_size, verbose=0)[0]
+                           batch_size=batch_size,
+                           verbose=0)[0]
 log('Test loss: {:.2f}'.format(test_loss))
 
 # Embeddings
 print('Computing operational stream.')
-embeddings = model.encode([adj_live, fltr_live, nf_live])
+embeddings_train = model.encode([adj, fltr, nf])
+embeddings_live = model.encode([adj_live, fltr_live, nf_live])
 
 # Save embeddings dataset
 print('Saving operational stream.')
-joblib.dump([embeddings, y_live], log_dir + 'dataset.pkl')
+joblib.dump([embeddings_train, embeddings_live, y_live], log_dir + 'dataset.pkl')
