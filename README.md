@@ -7,11 +7,12 @@ This code provides a proof of concept for the experiments conducted in the paper
 Please cite the paper if you use any of this code for your research:   
 
 ```
-@article{grattarola2018learning,
-  title={Change Detection in Graph Streams by Learning Graph Embeddings on Constant-Curvature Manifolds},
-  author={Grattarola, Daniele and Zambon, Daniele and Alippi, Cesare and Livi, Lorenzo},
-  journal={arXiv preprint arXiv:1805.06299},
-  year={2018}
+@article{grattarola2019change,
+  title={Change detection in graph streams by learning graph embeddings on constant-curvature manifolds},
+  author={Grattarola, Daniele and Zambon, Daniele and Livi, Lorenzo and Alippi, Cesare},
+  journal={IEEE transactions on neural networks and learning systems},
+  year={2019},
+  publisher={IEEE}
 }
 ```
 
