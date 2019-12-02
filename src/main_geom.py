@@ -9,10 +9,10 @@ from keras.models import Sequential, Model
 from keras.optimizers import Adam
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from spektral.layers import CCMMembership
 from spektral.utils import localpooling_filter, batch_iterator
 
 from src.utils import delaunay
+from src.utils.layers import CCMMembership
 from src.utils.logging import log, model_to_str, init_logging, tic, toc
 from src.utils.model import GAE_CCM
 

@@ -5,7 +5,9 @@ from keras.layers import Input, Dense, BatchNormalization, Activation, Reshape, 
 from keras.models import Model
 from keras.regularizers import l2
 from keras.utils import multi_gpu_model
-from spektral.layers import GraphConv, EdgeConditionedConv, GlobalAttentionPool, CCMProjection
+from spektral.layers import GraphConv, EdgeConditionedConv, GlobalAttentionPool
+
+from src.utils.layers import CCMProjection
 
 
 class GAE_CCM(object):
