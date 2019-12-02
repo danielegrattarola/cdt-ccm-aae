@@ -1,13 +1,10 @@
 from __future__ import absolute_import
 
 import os
-from glob import glob
 
 import numpy as np
 from scipy.spatial import Delaunay
-from spektral.utils import natural_key, label_to_one_hot, numpy_to_nx, nx_to_numpy
-from spektral.utils.io import load_dot
-from tqdm import tqdm
+from spektral.utils import label_to_one_hot, numpy_to_nx
 
 DATA_PATH = os.path.expanduser('~/.spektral/datasets/delaunay/')
 RETURN_TYPES = {'numpy', 'networkx'}
