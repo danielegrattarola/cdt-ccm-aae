@@ -117,11 +117,12 @@ batches_in_epoch = 1 + adj_train.shape[0] // batch_size
 total_batches = batches_in_epoch * epochs
 
 for batch in batch_iterator([adj_train, fltr_train, nf_train], batch_size=batch_size, epochs=epochs):
-    model_loss += model.train_on_batch(batch, [batch[0], batch[2]])[0]
+    a_, f_, nf_ = batch
+    model_loss += model.train_on_batch([f_, nf_], [a_, nf_])[0]
 
     # Regularization
     true_batch_size = batch[0].shape[0]
-    adv_res_fool = enc_discriminator.train_on_batch(batch, np.ones(true_batch_size))
+    adv_res_fool = enc_discriminator.train_on_batch([f_, nf_], np.ones(true_batch_size))
 
     # Update stats
     adv_fool += adv_res_fool[1]
@@ -129,7 +130,7 @@ for batch in batch_iterator([adj_train, fltr_train, nf_train], batch_size=batch_
     if current_batch % batches_in_epoch == 0:
         model_loss /= batches_in_epoch
         adv_fool /= batches_in_epoch
-        model_val_loss = model.evaluate([adj_val, fltr_val, nf_val], [adj_val, nf_val],
+        model_val_loss = model.evaluate([fltr_val, nf_val], [adj_val, nf_val],
                                         batch_size=batch_size, verbose=0)[0]
         log('Epoch {:3d} ({:2.2f}s) - '
             'loss {:.2f} - val_loss {:.2f} - '
@@ -156,7 +157,7 @@ for batch in batch_iterator([adj_train, fltr_train, nf_train], batch_size=batch_
 toc()
 log('Loading best weights')
 model.load_weights(log_dir + 'model_best_val_weights.h5')
-test_loss = model.evaluate([adj_test, fltr_test, nf_test],
+test_loss = model.evaluate([fltr_test, nf_test],
                            [adj_test, nf_test],
                            batch_size=batch_size,
                            verbose=0)[0]
@@ -164,8 +165,8 @@ log('Test loss: {:.2f}'.format(test_loss))
 
 # Embeddings
 print('Computing operational stream.')
-embeddings_train = model.encode([adj, fltr, nf])
-embeddings_live = model.encode([adj_live, fltr_live, nf_live])
+embeddings_train = model.encode([fltr, nf])
+embeddings_live = model.encode([fltr_live, nf_live])
 
 # Save embeddings dataset
 print('Saving operational stream.')

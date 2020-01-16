@@ -250,7 +250,7 @@ log_dir = init_logging('cdt')
 df_columns = ['id', 'c', '1_TPR', '2_TPR_std', '3_FPR', '4_FPR_std', '5_AUC', '6_AUC_std']
 for sfx_, cdt_ in zip(suffixes, cdts_to_run):
     print('{}'.format(sfx_))
-    output = Parallel(-1)(delayed(cdt_)(path_, c_)
+    output = Parallel(1)(delayed(cdt_)(path_, c_)
                           for path_, c_ in product(paths, P['classes']))
     df = pd.DataFrame(output)
     df.columns = df_columns

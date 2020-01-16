@@ -14,11 +14,11 @@ class GAE_CCM(object):
     """
     A graph autoencoder with support for combined CCMs.
     """
-    def __init__(self, N, F, E=None, latent_space=128, radius=(-1., 0., 1.),
+    def __init__(self, N, F, S=None, latent_space=128, radius=(-1., 0., 1.),
                  dropout_rate=0.0, l2_reg=5e-4, multi_gpu=False):
         self.N = N                        # Number of nodes in a graph
         self.F = F                        # Number of node features
-        self.E = E                        # Number of edge features
+        self.S = S                        # Number of edge features
         self.dropout_rate = dropout_rate  # Dropout rate between convolutions
         self.l2_reg = l2_reg              # L2 regularization for convolutions
         self.latent_space = latent_space  # Dimensionality of a single CCM
@@ -32,7 +32,7 @@ class GAE_CCM(object):
                             'of values.')
 
         # Model definition
-        if self.E is not None:
+        if self.S is not None:
             self.model, self.encoder, self.decoder, self.clipper = self._model_builder_ecc()
         else:
             self.model, self.encoder, self.decoder, self.clipper = self._model_builder_gcn()
@@ -76,7 +76,7 @@ class GAE_CCM(object):
         # Inputs
         adj_in = Input(shape=(self.N, self.N), name='adj_in')
         nf_in = Input(shape=(self.N, self.F), name='nf_in')
-        ef_in = Input(shape=(self.N, self.N, self.E), name='ef_in')
+        ef_in = Input(shape=(self.N, self.N, self.S), name='ef_in')
         z_in = Input(shape=(full_latent_space, ), name='z_in')
 
         # Encoder
@@ -130,8 +130,8 @@ class GAE_CCM(object):
         nf_out_pre = Dense(self.N * self.F, activation='linear')(relu5)
         nf_out = Reshape((self.N, self.F), name='nf_out')(nf_out_pre)
 
-        ef_out_pre = Dense(self.N * self.N * self.E, activation='linear')(relu5)
-        ef_out = Reshape((self.N, self.N, self.E), name='ef_out')(ef_out_pre)
+        ef_out_pre = Dense(self.N * self.N * self.S, activation='linear')(relu5)
+        ef_out = Reshape((self.N, self.N, self.S), name='ef_out')(ef_out_pre)
 
         # Build models
         encoder = Model(inputs=[adj_in, nf_in, ef_in], outputs=z_enc)
@@ -148,7 +148,6 @@ class GAE_CCM(object):
         full_latent_space = len(self._radius) * self.latent_space
 
         # Input
-        adj_in = Input(shape=(self.N, self.N), name='adj_in')
         fltr_in = Input(shape=(self.N, self.N), name='fltr_in')
         nf_in = Input(shape=(self.N, self.F), name='nf_in')
         z_in = Input(shape=(full_latent_space, ), name='z_in')
@@ -203,10 +202,10 @@ class GAE_CCM(object):
         nf_out = Reshape((self.N, self.F), name='nf_out')(nf_out_pre)
 
         # Build models
-        encoder = Model(inputs=[adj_in, fltr_in, nf_in], outputs=z_enc)
-        clipper = Model(inputs=[adj_in, fltr_in, nf_in], outputs=z_clip)
+        encoder = Model(inputs=[fltr_in, nf_in], outputs=z_enc)
+        clipper = Model(inputs=[fltr_in, nf_in], outputs=z_clip)
         decoder = Model(inputs=z_in, outputs=[adj_out, nf_out])
-        model = Model(inputs=[adj_in, fltr_in, nf_in], outputs=decoder(clipper.output))
+        model = Model(inputs=[fltr_in, nf_in], outputs=decoder(clipper.output))
         model.output_names = ['adj', 'nf']
 
         return model, encoder, decoder, clipper
